@@ -130,14 +130,6 @@ void vPeriodicTaskFunction(void* pvParameters)
 }
 
 
-/* Parameters for two tasks */
-static const paramStruct tParam[2] =
-{
-    (paramStruct) { .text="Task1\r\n", .delay=2000 },
-    (paramStruct) { .text="Periodic task\r\n", .delay=3000 }
-};
-
-
 /*
  * A convenience function that is called when a FreeRTOS API call fails
  * and a program cannot continue. It prints a message (if provided) and
@@ -151,6 +143,63 @@ static void FreeRTOS_Error(const portCHAR* msg)
     }
 
     for ( ; ; );
+}
+
+int tom = 0;
+int jerry = 1;
+int popeye = 2;
+
+void printNumber(int nr)
+{
+    char msg[10];
+    int i=9;
+
+    msg[i--] = 0;
+    while(nr) {
+        msg[i--] = '0' + (nr % 10);
+        nr = nr/10;
+    }
+    vDirectPrintMsg(&msg[i+1]);
+}
+
+void pinky(void *pvParameters)
+{
+    (void)pvParameters;
+    while (1)
+    {
+        tom++;
+        if ((tom & 8388607) == 8388607) {
+            vDirectPrintMsg("tom: ");
+            printNumber(tom >> 23);
+            vDirectPrintMsg("\r\n");
+        }
+    }
+}
+void brain(void *pvParameters)
+{
+    (void)pvParameters;
+    while (1)
+    {
+        jerry++;
+        if ((jerry & 8388607) == 8388607) {
+            vDirectPrintMsg("jerry: ");
+            printNumber(jerry >> 23);
+            vDirectPrintMsg("\r\n");
+        }
+    }
+}
+void droopy(void *pvParameters)
+{
+    (void)pvParameters;
+    while (1)
+    {
+        popeye++;
+        if ((popeye & 8388607) == 8388607) {
+            vDirectPrintMsg("popeye: ");
+            printNumber(popeye >> 23);
+            vDirectPrintMsg("\r\n");
+        }
+    }
 }
 
 /* Startup function that creates and runs two FreeRTOS tasks */
@@ -170,39 +219,45 @@ void main(void)
      */
     vDirectPrintMsg("= = = T E S T   S T A R T E D = = =\r\n\r\n");
 
-    /* Init of receiver related tasks: */
-    if ( pdFAIL == recvInit(RECV_UART_NR) )
-    {
-        FreeRTOS_Error("Initialization of receiver failed\r\n");
-    }
+    static StaticTask_t xTaskBuffer, xTaskBuffer2, xTaskBuffer3;
+    static StackType_t xStack[configMINIMAL_STACK_SIZE];
+    static StackType_t xStack2[configMINIMAL_STACK_SIZE];
+    static StackType_t xStack3[configMINIMAL_STACK_SIZE];
 
-    /* Create a print gate keeper task: */
-    if ( pdPASS != xTaskCreate(printGateKeeperTask, "gk", 128, NULL,
-                               PRIOR_PRINT_GATEKEEPR, NULL) )
-    {
-        FreeRTOS_Error("Could not create a print gate keeper task\r\n");
-    }
+    TaskHandle_t xHandle;
+    TaskHandle_t xHandle2;
 
-    if ( pdPASS != xTaskCreate(recvTask, "recv", 128, NULL, PRIOR_RECEIVER, NULL) )
-    {
-        FreeRTOS_Error("Could not create a receiver task\r\n");
-    }
 
-    /* And finally create two tasks: */
-    if ( pdPASS != xTaskCreate(vTaskFunction, "task1", 128, (void*) &tParam[0],
-                               PRIOR_PERIODIC, NULL) )
-    {
-        FreeRTOS_Error("Could not create task1\r\n");
-    }
+    /* Create the task without using any dynamic memory allocation. */
+    xHandle = xTaskCreateStatic(
+        pinky,                    /* Function that implements the task. */
+        "Pinky",                  /* Text name for the task. */
+        configMINIMAL_STACK_SIZE, /* Number of indexes in the xStack array. */
+        (void *)NULL,             /* Parameter passed into the task. */
+        tskIDLE_PRIORITY,         /* Priority at which the task is created. */
+        &xStack[0],               /* Array to use as the task's stack. */
+        &xTaskBuffer);            /* Variable to hold the task's data structure. */
 
-    if ( pdPASS != xTaskCreate(vPeriodicTaskFunction, "task2", 128, (void*) &tParam[1],
-                               PRIOR_FIX_FREQ_PERIODIC, NULL) )
-    {
-        FreeRTOS_Error("Could not create task2\r\n");
-    }
+    xHandle2 = xTaskCreateStatic(
+        brain,                    /* Function that implements the task. */
+        "Brain",                  /* Text name for the task. */
+        configMINIMAL_STACK_SIZE, /* Number of indexes in the xStack array. */
+        (void *)NULL,             /* Parameter passed into the task. */
+        tskIDLE_PRIORITY,         /* Priority at which the task is created. */
+        &xStack2[0],               /* Array to use as the task's stack. */
+        &xTaskBuffer2);            /* Variable to hold the task's data structure. */
 
-    vDirectPrintMsg("A text may be entered using a keyboard.\r\n");
-    vDirectPrintMsg("It will be displayed when 'Enter' is pressed.\r\n\r\n");
+    xHandle = xTaskCreateStatic(
+        droopy,                    /* Function that implements the task. */
+        "Popeye",                  /* Text name for the task. */
+        configMINIMAL_STACK_SIZE, /* Number of indexes in the xStack array. */
+        (void *)NULL,             /* Parameter passed into the task. */
+        tskIDLE_PRIORITY,         /* Priority at which the task is created. */
+        &xStack3[0],               /* Array to use as the task's stack. */
+        &xTaskBuffer3);            /* Variable to hold the task's data structure. */
+
+    (void) xHandle;
+    (void) xHandle2;
 
     /* Start the FreeRTOS scheduler */
     vTaskStartScheduler();
@@ -216,4 +271,28 @@ void main(void)
 
     /* just in case if an infinite loop is somehow omitted in FreeRTOS_Error */
     for ( ; ; );
+}
+
+void vApplicationGetIdleTaskMemory(
+    StaticTask_t **ppxIdleTaskTCBBuffer,
+    StackType_t **ppxIdleTaskStackBuffer,
+    uint32_t *pulIdleTaskStackSize )
+{
+    /* If the buffers to be provided to the Idle task are declared inside this
+    function then they must be declared static - otherwise they will be allocated on
+    the stack and so not exists after this function exits. */
+    static StaticTask_t xIdleTaskTCB;
+    static StackType_t uxIdleTaskStack[ configMINIMAL_STACK_SIZE ];
+
+    /* Pass out a pointer to the StaticTask_t structure in which the Idle task's
+    state will be stored. */
+    *ppxIdleTaskTCBBuffer = &xIdleTaskTCB;
+
+    /* Pass out the array that will be used as the Idle task's stack. */
+    *ppxIdleTaskStackBuffer = uxIdleTaskStack;
+
+    /* Pass out the size of the array pointed to by *ppxIdleTaskStackBuffer.
+    Note that, as the array is necessarily of type StackType_t,
+    configMINIMAL_STACK_SIZE is specified in words, not bytes. */
+    *pulIdleTaskStackSize = configMINIMAL_STACK_SIZE;
 }
